@@ -43,31 +43,57 @@ sudo apt install mdbtools
 ## 사용법
 
 ```bash
-python3 extract.py DATA.mdb [출력_디렉터리]
+python3 extract.py DATA.mdb [출력_디렉터리] [옵션]
 ```
 
-- `DATA.mdb` : Ukino DreamNote 데이터 파일 경로
-- `출력_디렉터리` : 추출 결과를 저장할 폴더 (기본값: `output`)
+| 인수 / 옵션 | 설명 |
+|-------------|------|
+| `DATA.mdb` | Ukino DreamNote 데이터 파일 경로 (필수) |
+| `출력_디렉터리` | 추출 결과를 저장할 폴더 (기본값: `output`) |
+| `--merge-pages` | 여러 페이지를 하나의 .md 파일로 합산 (기본: 페이지별 파일 분리) |
 
 ### 예시
 
 ```bash
-python3 extract.py ~/Documents/DreamNote/DATA.mdb ~/Documents/extracted_notes
+# 기본 실행 (페이지별 파일 분리)
+python3 extract.py "C:\Program Files (x86)\Ukino DreamNote CS\My\DATA.mdb"
+
+# 출력 폴더 지정
+python3 extract.py DATA.mdb ~/Documents/extracted_notes
+
+# 페이지를 하나의 파일로 합산
+python3 extract.py DATA.mdb output --merge-pages
 ```
 
-실행하면 다음과 같은 구조로 Markdown 파일이 생성됩니다.
+### 출력 구조 예시
+
+**기본 (페이지 분리)** — 날짜·챕터 등 페이지가 각각 별도 파일로 생성됩니다.
 
 ```
 output/
 └── 내 프로젝트/
-    ├── 소설/
-    │   ├── 1부/
-    │   │   ├── 1장.md      ← 스토리 (챕터별 내용 포함)
-    │   │   └── 2장.md
-    │   └── 메모장.md
-    ├── 설정/
-    │   └── 세계관.md
-    └── 사전.md
+    ├── 일기장/
+    │   └── 공중보건의사/
+    │       ├── 2017.04.18.화.md
+    │       ├── 2017.04.19.수.md
+    │       └── ...
+    └── 소설/
+        └── 1장/
+            ├── 프롤로그.md
+            ├── 챕터1.md
+            └── 챕터2.md
+```
+
+**`--merge-pages`** — 모든 페이지가 하나의 파일로 합산됩니다.
+
+```
+output/
+└── 내 프로젝트/
+    ├── 일기장/
+    │   ├── 공중보건의사.md   ← 모든 날짜가 ## 제목 으로 구분
+    │   └── 육군훈련소.md
+    └── 소설/
+        └── 1장.md            ← 프롤로그·챕터1·챕터2가 한 파일
 ```
 
 ---

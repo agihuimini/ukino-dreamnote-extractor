@@ -283,26 +283,30 @@ def get_memo_md(key: str, memo_lut: dict) -> tuple[str, str]:
     return title, text
 
 
-def get_story_md(key: str, story_lut: dict, srtf_lut: dict) -> tuple[str, str]:
+def get_story_pages(key: str, story_lut: dict, srtf_lut: dict) -> tuple[str, list[tuple[str, str]]]:
+    """Return (title, [(page_name, page_text), ...]).
+
+    Single-page stories return a one-element list.
+    """
     row = story_lut.get(key)
     if not row:
-        return "", ""
+        return "", []
     title = row["CAPTION"]
     page_keys = split_dn_list(row.get("RTF_LIST", ""))
     page_names = split_dn_list(row.get("RTF_NAME_LIST", ""))
 
     if not page_keys:
         text = rtf_to_text(row.get("MEMO_RTF", ""))
-        return title, text
+        return title, [(title, text)]
 
-    parts = []
+    pages = []
     for idx, pk in enumerate(page_keys):
         pname = page_names[idx] if idx < len(page_names) else f"Page {idx + 1}"
         rtf_row = srtf_lut.get(pk)
         ptext = rtf_to_text(rtf_row["RTF_DATA"]) if rtf_row else ""
-        parts.append(f"## {pname}\n\n{ptext}")
+        pages.append((pname, ptext))
 
-    return title, "\n\n".join(parts)
+    return title, pages
 
 
 def get_dic_md(key: str, dic_lut: dict, drtf_lut: dict) -> tuple[str, str]:
@@ -327,40 +331,72 @@ def get_dic_md(key: str, dic_lut: dict, drtf_lut: dict) -> tuple[str, str]:
 # Tree walker
 # ─────────────────────────────────────────────
 
-def write_node(node: dict, parent_dir: Path, data: dict, counters: dict):
-    """Recursively write a treeview node to disk."""
+def write_node(node: dict, parent_dir: Path, data: dict, counters: dict, merge_pages: bool = False):
+    """Recursively write a treeview node to disk.
+
+    merge_pages: if True, multi-page stories are written as one combined .md file.
+                 If False (default), each page becomes a separate file inside a subfolder.
+    """
     key = node.get("Key", "")
     label = node.get("Text", "") or key[:30]
     children = node.get("children", [])
 
     # Determine content type
-    title, content = "", ""
+    title = ""
+    memo_content: str | None = None          # single-file content (memo / dic)
+    story_pages: list[tuple[str, str]] = []  # multi-page story pages
+
     if key in data["memo_keys"]:
-        title, content = get_memo_md(key, data["memo_lut"])
+        title, memo_content = get_memo_md(key, data["memo_lut"])
     elif key in data["story_keys"]:
-        title, content = get_story_md(key, data["story_lut"], data["srtf_lut"])
+        title, story_pages = get_story_pages(key, data["story_lut"], data["srtf_lut"])
     elif key in data["dic_keys"]:
-        title, content = get_dic_md(key, data["dic_lut"], data["drtf_lut"])
+        title, memo_content = get_dic_md(key, data["dic_lut"], data["drtf_lut"])
 
     display = title or label
     folder_name = safe_name(display)
 
     if children:
-        # ── Directory node ──
+        # ── Structural directory node (folder in the tree) ──
         node_dir = parent_dir / folder_name
         node_dir.mkdir(parents=True, exist_ok=True)
 
-        # If the directory node also has content, save as _index.md
-        if content:
-            _write_md(node_dir / "_index.md", display, content, counters)
+        if memo_content is not None:
+            _write_md(node_dir / "_index.md", display, memo_content, counters)
+        elif story_pages:
+            _write_story(node_dir, display, story_pages, counters, merge_pages)
 
         for child in children:
-            write_node(child, node_dir, data, counters)
+            write_node(child, node_dir, data, counters, merge_pages)
+
+    elif story_pages and len(story_pages) > 1 and not merge_pages:
+        # ── Split mode: multi-page story → subfolder, one file per page ──
+        story_dir = parent_dir / folder_name
+        story_dir.mkdir(parents=True, exist_ok=True)
+        _write_story(story_dir, display, story_pages, counters, merge_pages=False)
+
     else:
-        # ── Leaf node → .md file ──
+        # ── Single file: memo, single-page story, dic, or merge mode ──
         parent_dir.mkdir(parents=True, exist_ok=True)
+        if story_pages:
+            content = "\n\n".join(
+                f"## {pname}\n\n{ptext}" for pname, ptext in story_pages
+            )
+        else:
+            content = memo_content or ""
         file_name = safe_name(display) + ".md"
         _write_md(parent_dir / file_name, display, content, counters)
+
+
+def _write_story(story_dir: Path, title: str, pages: list[tuple[str, str]],
+                 counters: dict, merge_pages: bool = False):
+    """Write story pages: one file per page (split) or a single combined file (merge)."""
+    if merge_pages:
+        content = "\n\n".join(f"## {pname}\n\n{ptext}" for pname, ptext in pages)
+        _write_md(story_dir / (safe_name(title) + ".md"), title, content, counters)
+    else:
+        for pname, ptext in pages:
+            _write_md(story_dir / (safe_name(pname) + ".md"), pname, ptext, counters)
 
 
 def _write_md(path: Path, title: str, content: str, counters: dict):
@@ -382,16 +418,30 @@ def _write_md(path: Path, title: str, content: str, counters: dict):
 # ─────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 extract.py <DATA.mdb> [output_dir]")
-        sys.exit(1)
+    import argparse
 
-    mdb_path = sys.argv[1]
-    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("output")
+    parser = argparse.ArgumentParser(
+        description="Extract Ukino DreamNote DATA.mdb to Markdown files."
+    )
+    parser.add_argument("mdb", help="Path to DATA.mdb")
+    parser.add_argument("output", nargs="?", default="output", help="Output directory (default: output)")
+    parser.add_argument(
+        "--merge-pages",
+        action="store_true",
+        help="Combine all pages of a story into one .md file instead of splitting into separate files per page.",
+    )
+    args = parser.parse_args()
+
+    mdb_path = args.mdb
+    output_dir = Path(args.output)
+    merge_pages = args.merge_pages
 
     if not Path(mdb_path).exists():
-        print(f"Error: '{mdb_path}' not found")
+        print(f"Error: '{mdb_path}' not found", file=sys.stderr)
         sys.exit(1)
+
+    if merge_pages:
+        print("Mode: merge pages into single file per story")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -431,7 +481,7 @@ def main():
         project_dir.mkdir(parents=True, exist_ok=True)
 
         for node in nodes:
-            write_node(node, project_dir, data, counters)
+            write_node(node, project_dir, data, counters, merge_pages)
 
     print(f"\nDone → {output_dir.resolve()}")
 
