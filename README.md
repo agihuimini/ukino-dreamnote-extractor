@@ -74,12 +74,16 @@ output/
 
 ## DATA.mdb 파일 위치
 
-Ukino DreamNote는 기본적으로 설치 폴더 안에 `DATA.mdb`를 저장합니다.  
-Windows의 경우 보통 아래 경로에 있습니다.
+Ukino DreamNote CS는 설치 폴더 내 `My` 하위 폴더에 `DATA.mdb`를 저장합니다.  
+Windows 기본 경로는 아래 두 가지 중 하나입니다.
 
 ```
-C:\Program Files\Ukino\DreamNote\DATA\DATA.mdb
+C:\Program Files\Ukino DreamNote CS\My\DATA.mdb
+C:\Program Files (x86)\Ukino DreamNote CS\My\DATA.mdb
 ```
+
+> 64비트 Windows에서는 32비트 프로그램이 `Program Files (x86)`에 설치되는 경우가 많습니다.  
+> 위 두 경로 중 실제로 존재하는 쪽을 사용하세요.
 
 ---
 
